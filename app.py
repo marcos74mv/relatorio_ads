@@ -64,7 +64,6 @@ def carregar_e_tratar_dados(file):
     df["fim"] = pd.to_datetime(df["fim"], errors="coerce")
 
     # --- separar total x criativos ---
-
     # no seu arquivo, a linha 0 tem criativo NaN = total
     mask_total = df["criativo"].isna()
     df_total = df.loc[mask_total].reset_index(drop=True)
@@ -101,26 +100,43 @@ if uploaded_file is not None:
     # ======================
     st.subheader("Visão geral da campanha")
 
-    col1, col2, col3, col4 = st.columns(4)
+    def reais(x: float) -> str:
+        if pd.isna(x):
+            return "-"
+        return f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    def inteiro_br(x: float) -> str:
+        if pd.isna(x):
+            return "-"
+        return f"{int(x):,}".replace(",", ".")
 
     investimento_total = total["valor_usado"]
     impressoes_totais = total["impressoes"]
     alcance_total = total["alcance"]
     cliques_totais = total["cliques_link"]
     conversas_totais = total["conversas_mensagem"]
+    engaj_total = total["engajamento"]
     ctr_medio = total["ctr"]
     cpc_medio = total["cpc"]
     cpm_medio = total["cpm"]
+    freq_media = total["frequencia"]
+    custo_conversa_medio = total["custo_por_conversa"]
 
-    col1.metric("Investimento total", f"R$ {investimento_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    col2.metric("Impressões", f"{int(impressoes_totais):,}".replace(",", "."))
-    col3.metric("Alcance", f"{int(alcance_total):,}".replace(",", "."))
-    col4.metric("CTR médio", f"{ctr_medio*100:.2f}%")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Investimento total", reais(investimento_total))
+    col2.metric("Impressões", inteiro_br(impressoes_totais))
+    col3.metric("Alcance", inteiro_br(alcance_total))
+    col4.metric("Frequência média", f"{freq_media:.2f}x")
 
-    col5, col6, col7 = st.columns(3)
-    col5.metric("Cliques no link", f"{int(cliques_totais):,}".replace(",", "."))
-    col6.metric("CPC médio", f"R$ {cpc_medio:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    col7.metric("CPM médio", f"R$ {cpm_medio:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    col5, col6, col7, col8 = st.columns(4)
+    col5.metric("Cliques no link", inteiro_br(cliques_totais))
+    col6.metric("Conversas iniciadas", inteiro_br(conversas_totais))
+    col7.metric("CTR médio", f"{ctr_medio*100:.2f}%")
+    col8.metric("CPC médio", reais(cpc_medio))
+
+    col9, col10 = st.columns(2)
+    col9.metric("CPM médio", reais(cpm_medio))
+    col10.metric("Custo médio por conversa", reais(custo_conversa_medio))
 
     # ======================
     # 3. Tabela por criativo
@@ -145,31 +161,75 @@ if uploaded_file is not None:
     st.dataframe(df_criativos_fmt[colunas_meta], use_container_width=True)
 
     # ======================
-    # 4. Gráficos
+    # 4. Texto pronto para WhatsApp
     # ======================
-    st.subheader("Gráficos de performance")
+    st.subheader("Texto pronto para enviar no WhatsApp")
 
-    # garantir que não usamos a linha de total aqui
-    df_plot = df_criativos_num.copy()
+    data_inicio = total["inicio"].date() if not pd.isna(total["inicio"]) else None
+    data_fim = total["fim"].date() if not pd.isna(total["fim"]) else None
 
-    # evitar NaN em criativo
-    df_plot["criativo"] = df_plot["criativo"].fillna("Sem nome")
+    if data_inicio and data_fim:
+        periodo_str = f"{data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}"
+    else:
+        periodo_str = "período da campanha"
 
-    tab1, tab2, tab3 = st.tabs(["CTR por criativo", "CPC por criativo", "CPM por criativo"])
+    texto_whatsapp = f"""
+Relatório da campanha de Meta Ads ({periodo_str}) 📊
 
-    with tab1:
-        st.bar_chart(df_plot.set_index("criativo")["ctr"])
+💰 Investimento total: {reais(investimento_total)}
+👥 Alcance: {inteiro_br(alcance_total)} pessoas
+📣 Impressões: {inteiro_br(impressoes_totais)}
+🔁 Frequência média: {freq_media:.2f}x
 
-    with tab2:
-        st.bar_chart(df_plot.set_index("criativo")["cpc"])
+🖱️ Cliques no link: {inteiro_br(cliques_totais)}
+📨 Conversas iniciadas: {inteiro_br(conversas_totais)}
+👍 Engajamentos: {inteiro_br(engaj_total)}
 
-    with tab3:
-        st.bar_chart(df_plot.set_index("criativo")["cpm"])
+📊 Métricas de eficiência:
+• CTR (taxa de cliques): {ctr_medio*100:.2f}%
+• CPC médio (custo por clique): {reais(cpc_medio)}
+• CPM médio (custo por mil impressões): {reais(cpm_medio)}
+• Custo médio por conversa: {reais(custo_conversa_medio)}
+
+Resumo geral:
+A campanha está alcançando um público relevante, com bom volume de impressões, cliques e conversas pelo WhatsApp, mantendo um custo eficiente por clique e por conversa. Qualquer dúvida, posso te explicar cada métrica em detalhes 😊
+""".strip()
+
+    st.text_area(
+        "Copie o texto abaixo e envie para o cliente pelo WhatsApp:",
+        value=texto_whatsapp,
+        height=350
+    )
 
     # ======================
-    # 5. Download em Excel
+    # 5. Significado das siglas
     # ======================
-    st.subheader("Exportar relatório")
+    st.subheader("Significado das métricas e siglas")
+
+    st.markdown("""
+**Alcance** – Número de pessoas únicas que viram o anúncio pelo menos uma vez.  
+**Impressões** – Quantidade total de vezes que o anúncio foi exibido (a mesma pessoa pode ver mais de uma vez).  
+**Frequência** – Média de vezes que cada pessoa viu o anúncio (impressões ÷ alcance).  
+
+**CTR (Click Through Rate)** – Taxa de cliques. É a porcentagem de cliques em relação ao total de impressões  
+→ Fórmula: `CTR = cliques / impressões`.
+
+**CPC (Custo Por Clique)** – Quanto você paga, em média, por cada clique no anúncio.  
+→ Fórmula: `CPC = investimento / cliques`.
+
+**CPM (Custo Por Mil Impressões)** – Quanto custa, em média, para exibir o anúncio mil vezes.  
+→ Fórmula: `CPM = investimento / impressões * 1000`.
+
+**Custo por conversa** – Quanto custa, em média, cada conversa iniciada a partir do anúncio.  
+→ Fórmula: `Custo por conversa = investimento / conversas`.
+
+**Engajamento** – Soma de interações com a página/anúncio (curtidas, comentários, compartilhamentos e outras ações de engajamento).  
+""")
+
+    # ======================
+    # 6. Exportar dados (opcional)
+    # ======================
+    st.subheader("Exportar dados numéricos (opcional)")
 
     df_export = df_criativos_num.copy()
     df_export["ctr_percent"] = df_export["ctr"] * 100
